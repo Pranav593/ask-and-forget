@@ -2,16 +2,20 @@ from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr
 from firebase_admin import auth
 from database import db
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+
+
 
 from auth import signup as fb_signup, login as fb_login
 
 app = FastAPI(title="Ask and Forget API")
 
-
+bearer_scheme = HTTPBearer()
 
 @app.get("/")
 def read_root():
-    return {"status": "Active", "msg": "UTD GDSC Backend02 is running!"}
+    return {"status": "Active", "msg": "Ask and Forget backend is running."}
     
 # Authentication
 
@@ -46,25 +50,22 @@ def login(body: AuthBody):
         raise HTTPException(status_code=401, detail=str(e))
     
 
-def require_user(authorization: str | None = Header(default=None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Bearer token")
+# For some odd reason, Swagger UI is not sending the Authorization header with the Bearer token, so
+# I have coded in an authorization http bearer to test authentication appropriately.
 
-    token = authorization.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Empty Bearer token")
+def require_user(creds: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    return auth.verify_id_token(creds.credentials)
 
-    try:
-        decoded = auth.verify_id_token(token)
-        # decoded contains uid, iat, exp, and possibly email
-        return decoded
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 @app.get("/auth/me")
 def me(user=Depends(require_user)):
-    return {"uid": user["uid"], "claims": user}
+    return {
+        "uid": user["uid"],
+        "email": user.get("email"),
+        "email_verified": user.get("email_verified")
+    }
+
 
 
 @app.get("/protected")
