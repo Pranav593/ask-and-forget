@@ -41,19 +41,6 @@ class Reminder(BaseModel):
 def read_root():
     return {"status": "Active", "msg": "Ask and Forget backend is running."}
 
-# This endpoint preserves the database connection test from the 'reminders' branch
-@app.get("/test-db")
-def test_db_connection():
-    try:
-        doc_ref = db.collection("test_connection").document("status_check")
-        doc_ref.set({
-            "message": "Database is successfully connected!",
-            "sender": "FastAPI Server"
-        })
-        return {"status": "Success", "database": "Firestore Connected"}
-    except Exception as e:
-        return {"status": "Error", "message": str(e)}
-
 # --- Authentication Routes ---
 
 @app.post("/auth/signup")
