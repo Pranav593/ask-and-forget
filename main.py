@@ -1,3 +1,5 @@
+from typing import List, Optional
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
@@ -11,6 +13,8 @@ from reminder import (
     update_reminder, 
     delete_reminder
 )
+from auth import verify_id_token
+
 
 app = FastAPI(title="Ask and Forget API")
 
@@ -20,8 +24,10 @@ bearer = HTTPBearer()
 
 def require_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
     try:
-        return auth.verify_id_token(creds.credentials)
-    except Exception:
+        user_info = auth.verify_id_token(creds.credentials)
+        return user_info
+
+    except Exception as e:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
 # --- Pydantic Models ---
@@ -30,10 +36,23 @@ class AuthBody(BaseModel):
     email: EmailStr
     password: str
 
+class Condition(BaseModel):
+    type: str
+    threshold: Optional[int] = None
+
+class TriggerParams(BaseModel):
+    metric: str
+    operator: int
+    value: int
+
 class Reminder(BaseModel):
     title: str
-    data: str
-    completed: bool = False
+    trigger_type: str
+    location: str
+    trigger_params: TriggerParams
+    status: str
+    isActive: bool
+
 
 # --- General Routes ---
 
@@ -82,21 +101,29 @@ def protected(user=Depends(require_user)):
 # --- Reminder Routes ---
 
 @app.post("/reminders")
-def api_create(reminder: Reminder):
-    return create_reminder(reminder.title, reminder.data)
+def api_create(reminder: Reminder, user=Depends(require_user)):
+    uid = user["uid"]
+    return create_reminder(
+        user_id = uid,
+        reminder_dict = reminder.dict()
+    )
 
 @app.get("/reminders")
-def api_read():
-    return get_reminders()
+def api_read(user=Depends(require_user), is_active: Optional[bool] = True):
+    uid = user["uid"]
+    return get_reminders(uid, is_active)
 
 @app.get("/reminders/{reminder_id}")
-def api_read_one(reminder_id: str):
-    return get_reminder(reminder_id)
+def api_read_one(reminder_id: str, user=Depends(require_user)):
+    uid = user["uid"]
+    return get_reminder(reminder_id, user_id=uid)
 
 @app.put("/reminders/{reminder_id}")
-def api_update(reminder_id: str, updated_data: dict):
-    return update_reminder(reminder_id, updated_data)
+def api_update(reminder_id: str, updated_data: dict, user=Depends(require_user)):
+    uid = user["uid"]
+    return update_reminder(reminder_id, updated_data, user_id=uid)
 
 @app.delete("/reminders/{reminder_id}")
-def api_delete(reminder_id: str):
-    return delete_reminder(reminder_id)
+def api_delete(reminder_id: str, user=Depends(require_user)):
+    uid = user["uid"]
+    return delete_reminder(reminder_id, user_id=uid)
