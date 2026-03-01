@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 firebase-admin
-google-generativeai
+google-genai
 python-dotenv
 dateparser
 requests

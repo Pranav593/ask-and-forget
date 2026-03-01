@@ -1,7 +1,13 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 from database import db
+from llm_parser import parse_sentence_to_json
 
 app = FastAPI(title="Ask and Forget API")
+
+
+class ParseRequest(BaseModel):
+    sentence: str
 
 @app.get("/")
 def read_root():
@@ -18,3 +24,9 @@ def test_database():
         return {"status": "Success", "database": "Firestore Connected"}
     except Exception as e:
         return {"status": "Error", "message": str(e)}
+
+
+@app.post("/parse")
+def parse_sentence(payload: ParseRequest):
+    result = parse_sentence_to_json(payload.sentence)
+    return {"status": "Success", "data": result}
