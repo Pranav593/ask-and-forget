@@ -2,9 +2,9 @@ from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from firebase_admin import credentials, auth
-from app.database import db
-from app.auth import signup as fb_signup, login as fb_login
-from app.reminder import (
+from database import db
+from auth import signup as fb_signup, login as fb_login
+from reminder import (
     create_reminder, 
     get_reminders, 
     get_reminder, 
