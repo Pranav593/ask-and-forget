@@ -60,7 +60,41 @@ class Reminder(BaseModel):
 def read_root():
     return {"status": "Active", "msg": "Ask and Forget backend is running."}
 
-# --- Authentication Routes ---
+# --- Test Firestore Connection ---
+@app.get("/test-db")
+def test_db():
+    try:
+        doc_ref = db.collection("test_connection").document("status_check")
+        doc_ref.set({
+            "message": "Database is successfully connected!",
+            "sender": "FastAPI Server"
+        })
+
+        return {
+            "status": "Success",
+            "database": "Firestore Connected"
+        }
+
+    except Exception as e:
+        return {
+            "status": "Error",
+            "message": str(e)
+        }
+
+
+# --- NLP Parsing Route ---
+@app.post("/parse")
+def parse_sentence(payload: ParseRequest):
+    result = parse_sentence_to_json(payload.sentence)
+    return {
+        "status": "Success",
+        "data": result
+    }
+
+
+# =========================
+# Auth Routes
+# =========================
 
 @app.post("/auth/signup")
 def signup(body: AuthBody):
@@ -74,6 +108,7 @@ def signup(body: AuthBody):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @app.post("/auth/login")
 def login(body: AuthBody):
     try:
@@ -86,6 +121,7 @@ def login(body: AuthBody):
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
+
 @app.get("/auth/me")
 def me(user=Depends(require_user)):
     return {
@@ -94,34 +130,57 @@ def me(user=Depends(require_user)):
         "email_verified": user.get("email_verified")
     }
 
+
 @app.get("/protected")
 def protected(user=Depends(require_user)):
-    return {"ok": True, "uid": user["uid"], "message": "Authorized"}
+    return {
+        "ok": True,
+        "uid": user["uid"],
+        "message": "Authorized"
+    }
 
-# --- Reminder Routes ---
+
+# =========================
+# Reminder Routes
+# =========================
 
 @app.post("/reminders")
 def api_create(reminder: Reminder, user=Depends(require_user)):
     uid = user["uid"]
     return create_reminder(
-        user_id = uid,
-        reminder_dict = reminder.dict()
+        user_id=uid,
+        reminder_dict=reminder.dict()
     )
 
+
 @app.get("/reminders")
-def api_read(user=Depends(require_user), is_active: Optional[bool] = True):
+def api_read(
+    user=Depends(require_user),
+    is_active: Optional[bool] = True
+):
     uid = user["uid"]
     return get_reminders(uid, is_active)
+
 
 @app.get("/reminders/{reminder_id}")
 def api_read_one(reminder_id: str, user=Depends(require_user)):
     uid = user["uid"]
     return get_reminder(reminder_id, user_id=uid)
 
+
 @app.put("/reminders/{reminder_id}")
-def api_update(reminder_id: str, updated_data: dict, user=Depends(require_user)):
+def api_update(
+    reminder_id: str,
+    updated_data: dict,
+    user=Depends(require_user)
+):
     uid = user["uid"]
-    return update_reminder(reminder_id, updated_data, user_id=uid)
+    return update_reminder(
+        reminder_id,
+        updated_data,
+        user_id=uid
+    )
+
 
 @app.delete("/reminders/{reminder_id}")
 def api_delete(reminder_id: str, user=Depends(require_user)):
