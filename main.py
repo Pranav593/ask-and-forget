@@ -14,6 +14,7 @@ from reminder import (
     delete_reminder
 )
 from auth import verify_id_token
+from llm_parser import parse_sentence_to_json
 
 
 app = FastAPI(title="Ask and Forget API")
@@ -35,6 +36,9 @@ def require_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
 class AuthBody(BaseModel):
     email: EmailStr
     password: str
+
+class ParseRequest(BaseModel):
+    sentence: str
 
 class Condition(BaseModel):
     type: str

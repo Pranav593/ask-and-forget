@@ -4,3 +4,4 @@ __pycache__/
 serviceAccountKey.json
 .pytest_cache/
 format.json
+.venv/
