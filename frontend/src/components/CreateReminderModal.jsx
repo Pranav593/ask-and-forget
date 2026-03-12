@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { reminderAPI, engineAPI } from "../api/client";
+import { reminderAPI } from "../api/client";
 
 export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
   const [title, setTitle] = useState("");
@@ -9,6 +9,10 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!title.trim()) {
+      setError("Title is required.");
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -19,8 +23,6 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
         const pos = await new Promise((resolve, reject) => {
           navigator.geolocation.getCurrentPosition(resolve, reject);
         });
-        // We will pass lat/long to the AI as context, or finding the city name
-        // For simplicity, let's just append coordinates to the sentence context for the AI
         userLocation = ` (My current location is lat: ${pos.coords.latitude}, lon: ${pos.coords.longitude})`;
       } catch (locErr) {
         console.warn("Location permission denied or failed", locErr);
@@ -83,7 +85,16 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">Create Reminder</h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Create Reminder</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl font-bold leading-none"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
         
         <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -110,7 +121,17 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
                 />
             </div>
 
-            {error && <p className="text-red-500 text-sm">{error}</p>}
+            {/* Email notice */}
+            <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              <span className="text-blue-400 mt-0.5">✉️</span>
+              <p className="text-xs text-blue-600">
+                A confirmation email will be sent to you once this reminder is saved.
+              </p>
+            </div>
+
+            {error && (
+              <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded">{error}</p>
+            )}
 
             <div className="flex gap-2 pt-2">
                 <button

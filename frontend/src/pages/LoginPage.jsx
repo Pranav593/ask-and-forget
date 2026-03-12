@@ -15,38 +15,34 @@ export default function LoginPage({ onLoginSuccess }) {
   }, []);
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
+    e.preventDefault();
+    setLoading(true);
 
-  try {
-    let res;
+    try {
+      let res;
 
-    if (isSignup) {
-      res = await authAPI.signup(email, password);
-    } else {
-      res = await authAPI.login(email, password);
+      if (isSignup) {
+        res = await authAPI.signup(email, password);
+      } else {
+        res = await authAPI.login(email, password);
+      }
+
+      const { tokenId, refreshToken } = res.data;
+
+      localStorage.setItem('idToken', tokenId);
+      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem('user', JSON.stringify({ email }));
+
+      onLoginSuccess();
+
+    } catch (err) {
+      console.error("Auth error:", err);
+      const msg = err.response?.data?.detail || 'Authentication failed. Is the backend running?';
+      alert(msg);
+    } finally {
+      setLoading(false);
     }
-
-    const { tokenId, refreshToken } = res.data;
-
-    localStorage.setItem("idToken", tokenId);
-    localStorage.setItem("refreshToken", refreshToken);
-    localStorage.setItem("user", JSON.stringify({ email }));
-
-    const handleLogin = async () => {
-  const res = await axios.post("http://localhost:8000/auth/login", { email, password });
-  localStorage.setItem("idToken", res.data.tokenId); // save token for protected requests
-};
-
-    onLoginSuccess();
-
-  } catch (err) {
-    console.error("Auth error:", err);
-    alert("Authentication failed");
-  }
-
-  setLoading(false);
-};
+  };
 
   const doodleSvg = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
     <!-- Coffee cup -->
