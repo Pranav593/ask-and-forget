@@ -35,6 +35,19 @@ Rules:
 - Use an ISO 8601 timestamp for created_at if available, otherwise empty string.
 - condition.operator must be one of: ==, !=, >, >=, <, <=.
 - condition.value may be string, number, or boolean.
+- trigger_type must be one of: "weather.current", "stock.price", "time.now".
+- If user mentions weather (rain, temp, snow), use "weather.current".
+- If user mentions stock (price, symbol), use "stock.price".
+- If user mentions time/date, use "time.now".
+- For weather.current, condition.metric MUST be one of these exact keys:
+  - "temp_f" for temperature (in Fahrenheit)
+  - "feels_like_f" for feels-like temperature (in Fahrenheit)
+  - "humidity" for relative humidity (percentage)
+  - "wind_mph" for wind speed (in mph)
+  - "description" for weather description (e.g. "Clear sky", "Rain", "Snow", "Thunderstorm", "Drizzle", "Foggy", "Partly cloudy", "Cloudy")
+- For weather description checks (rain, snow, etc.), use condition.metric="description", operator="==", and the value should be one of: "Clear sky", "Partly cloudy", "Foggy", "Drizzle", "Rain", "Snow", "Thunderstorm", "Cloudy".
+- For stock.price, condition.metric should be "price".
+- For time.now, condition.metric can be "datetime", "day_of_week", or "timezone".
 User sentence: "__USER_SENTENCE__"
 """.strip()
 
@@ -101,7 +114,7 @@ def parse_sentence_to_json(sentence: str) -> Dict[str, Any]:
     for attempt in range(2):
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-flash-latest",
                 contents=prompt,
                 config={
                     "response_mime_type": "application/json",

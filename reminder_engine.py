@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from database import db
 from data_route import route
 from evaluator import Evaluator
+from google.cloud.firestore import FieldFilter
 
 
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +25,7 @@ class ReminderEngine:
     def get_active_reminders() -> List[Dict[str, Any]]:
         docs = (
             db.collection("reminders")
-            .where("is_active", "==", True)
+            .where(filter=FieldFilter("is_active", "==", True))
             .stream()
         )
 
@@ -98,14 +99,31 @@ class ReminderEngine:
                 return
 
             data = response["data"]
+            logging.info(f"Data fetched for reminder {reminder['id']}: {data}")
 
             # ----------------------------
             # Extract metric
             # ----------------------------
 
+            # Map common/generic metric names to actual data keys
+            METRIC_ALIASES = {
+                "temperature": "temp_f",
+                "temp": "temp_f",
+                "temp_fahrenheit": "temp_f",
+                "feels_like": "feels_like_f",
+                "feels_like_temperature": "feels_like_f",
+                "wind": "wind_mph",
+                "wind_speed": "wind_mph",
+                "weather_description": "description",
+                "weather_code": "code",
+                "stock_price": "price",
+            }
+
             condition = reminder.get("condition", {})
 
             metric = condition.get("metric")
+            # Resolve aliases
+            metric = METRIC_ALIASES.get(metric, metric)
             operator = condition.get("operator")
             expected_value = condition.get("value")
 
@@ -113,7 +131,8 @@ class ReminderEngine:
 
             if actual_value is None:
                 logging.warning(
-                    f"Metric '{metric}' not found in data for reminder {reminder['id']}"
+                    f"Metric '{metric}' not found in data for reminder {reminder['id']}. "
+                    f"Available keys: {list(data.keys())}"
                 )
                 return
 
@@ -125,6 +144,11 @@ class ReminderEngine:
                 actual_value,
                 operator,
                 expected_value
+            )
+
+            logging.info(
+                f"Reminder {reminder['id']}: {metric} {operator} {expected_value} => "
+                f"actual={actual_value}, triggered={result}"
             )
 
             if result:

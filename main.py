@@ -1,6 +1,8 @@
-from typing import List, Optional
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, Header
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from firebase_admin import credentials, auth
@@ -21,6 +23,15 @@ from engine_routes import router as engine_router
 
 
 app = FastAPI(title="Ask and Forget API")
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"Validation Error: {exc.errors()}")
+    print(f"Body: {await request.body()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": str(exc.body)},
+    )
 
 # --- CORS Setup ---
 app.add_middleware(

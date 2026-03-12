@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Callable, Tuple
 
 import requests
-
+import re
 
 # ----------------------------
 # Result envelope + errors
@@ -119,14 +119,21 @@ def _request_json(
 
 
 def _require(payload: dict, field: str) -> Any:
-    if field not in payload or payload[field] in (None, "", []):
-        raise RouterError(
-            "BAD_REQUEST",
-            f"Missing required field '{field}'",
-            status=400,
-            details={"required": [field]},
-        )
-    return payload[field]
+    # Special handling for weather.current which might supply coordinates instead of city
+    # If the payload has a 'city' that looks like coordinates, we accept it.
+    # Otherwise, if it's missing, we check for lat/lon in payload directly (future proofing)
+    
+    val = payload.get(field)
+    if val not in (None, "", []):
+        return val
+
+    # If strict check fails, raise
+    raise RouterError(
+        "BAD_REQUEST",
+        f"Missing required field '{field}'",
+        status=400,
+        details={"required": [field]},
+    )
 
 
 # ----------------------------
@@ -134,7 +141,9 @@ def _require(payload: dict, field: str) -> Any:
 # ----------------------------
 
 def _handle_weather_current(payload: dict) -> dict:
+    # Allow 'city' to contain either a city name OR coordinates string
     city = _require(payload, "city")
+    
     # Normalize cache key: trim + lower
     city_key = str(city).strip().lower()
 
@@ -142,24 +151,48 @@ def _handle_weather_current(payload: dict) -> dict:
     if cached is not None:
         return ok(cached, source="cache", meta={"ttl_seconds": _WEATHER_TTL_SECONDS})
 
-    # 1. Geocoding
-    geo_url = "https://geocoding-api.open-meteo.com/v1/search"
-    geo_params = {"name": city, "count": 1, "language": "en", "format": "json"}
-    
-    status, geo_body = _request_json("GET", geo_url, params=geo_params)
-    
-    if status != 200:
-         raise RouterError("UPSTREAM_ERROR", "Geocoding failed", status=502, details={"body": geo_body})
-    
-    results = geo_body.get("results")
-    if not results:
-        raise RouterError("NOT_FOUND", f"City '{city}' not found", status=404, details={"provider": "open-meteo-geocoding"})
+    lat = None
+    lon = None
+    city_name = None
+    country = None
 
-    location = results[0]
-    lat = location["latitude"]
-    lon = location["longitude"]
-    city_name = location["name"]
-    country = location.get("country")
+    # Check for coordinates in format "lat: <float>, lon: <float>" or plain "<float>, <float>"
+    # Use re.IGNORECASE just in case
+    coords_match = re.search(r"lat:\s*([-\d.]+),\s*lon:\s*([-\d.]+)", city_key, re.IGNORECASE)
+    
+    if not coords_match:
+        # Try plain coordinate format: "32.958, -96.958"
+        coords_match = re.match(r"^\s*([-\d.]+)\s*,\s*([-\d.]+)\s*$", city_key)
+    
+    if coords_match:
+        try:
+            lat = float(coords_match.group(1))
+            lon = float(coords_match.group(2))
+            city_name = f"Lat: {lat}, Lon: {lon}"
+            country = "Unknown"
+        except ValueError:
+            pass
+
+    # If no coordinates found in string, try Geocoding
+    if lat is None or lon is None:
+        # 1. Geocoding
+        geo_url = "https://geocoding-api.open-meteo.com/v1/search"
+        geo_params = {"name": city, "count": 1, "language": "en", "format": "json"}
+        
+        status, geo_body = _request_json("GET", geo_url, params=geo_params)
+        
+        if status != 200:
+             raise RouterError("UPSTREAM_ERROR", "Geocoding failed", status=502, details={"body": geo_body})
+        
+        results = geo_body.get("results")
+        if not results:
+            raise RouterError("NOT_FOUND", f"City '{city}' not found", status=404, details={"provider": "open-meteo-geocoding"})
+
+        location = results[0]
+        lat = location["latitude"]
+        lon = location["longitude"]
+        city_name = location["name"]
+        country = location.get("country")
 
     # 2. Weather
     weather_url = "https://api.open-meteo.com/v1/forecast"
@@ -182,6 +215,8 @@ def _handle_weather_current(payload: dict) -> dict:
     # https://open-meteo.com/en/docs
     wmo_code = current.get("weather_code", 0)
     description = "Unknown"
+    
+    # Common weather conditions mapping
     if wmo_code == 0: description = "Clear sky"
     elif wmo_code in (1, 2, 3): description = "Partly cloudy"
     elif wmo_code in (45, 48): description = "Foggy"
@@ -189,9 +224,10 @@ def _handle_weather_current(payload: dict) -> dict:
     elif wmo_code in (61, 63, 65): description = "Rain"
     elif wmo_code in (71, 73, 75): description = "Snow"
     elif wmo_code in (95, 96, 99): description = "Thunderstorm"
-    else: description = "Cloudy/Rain options"
+    else: description = "Cloudy"
 
     parsed = {
+        # Standard fields
         "city": city_name,
         "country": country,
         "temp_f": current.get("temperature_2m"),
@@ -199,6 +235,10 @@ def _handle_weather_current(payload: dict) -> dict:
         "humidity": current.get("relative_humidity_2m"),
         "wind_mph": current.get("wind_speed_10m"),
         "description": description,
+        
+        # Add 'weather' field aliased to description or code for generic checks
+        "weather": description.lower(),
+        "code": wmo_code,
         "provider": "open-meteo",
     }
 
@@ -213,16 +253,38 @@ def _handle_time_now(payload: dict) -> dict:
     payload can include: {"timezone": "America/Chicago"} (optional)
     """
     tz = payload.get("timezone")
-    if tz:
+    
+    # If timezone is unknown or empty, fallback to IP-based
+    if tz and tz.lower() != "unknown":
         url = f"https://worldtimeapi.org/api/timezone/{tz}"
     else:
         # Auto-detect based on requester IP (works for servers with public IPs)
         url = "https://worldtimeapi.org/api/ip"
 
-    status, body = _request_json("GET", url)
+    try:
+        status, body = _request_json("GET", url)
+    except Exception as e:
+         # Fallback to UTC if worldtimeapi fails or is unreachable
+         from datetime import datetime
+         now = datetime.utcnow()
+         return {
+            "timezone": "UTC",
+            "datetime": now.isoformat(),
+            "unixtime": int(now.timestamp()),
+            "utc_offset": "+00:00",
+            "day_of_week": now.weekday() + 1, # Monday is 1
+            "provider": "local_fallback",
+        }
 
     if status == 404:
-        raise RouterError("NOT_FOUND", f"Timezone '{tz}' not found", status=404, details={"provider": "worldtimeapi"})
+        # If specific timezone not found, try IP based
+        if "timezone" in url:
+             url = "https://worldtimeapi.org/api/ip"
+             status, body = _request_json("GET", url)
+        
+        if status != 200:
+             raise RouterError("NOT_FOUND", f"Timezone '{tz}' not found and IP fallback failed", status=404, details={"provider": "worldtimeapi"})
+
     if status >= 500:
         raise RouterError("UPSTREAM_ERROR", "Time API server error", status=502, details={"provider_status": status, "body": body})
     if status != 200:

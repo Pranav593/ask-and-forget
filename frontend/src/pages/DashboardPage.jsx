@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import ReminderCard from '../components/ReminderCard';
 import CreateReminderModal from '../components/CreateReminderModal';
+import { engineAPI, reminderAPI } from '../api/client'; // Import engineAPI here
 
 const API_BASE = 'http://localhost:8000'; // FastAPI backend URL
 
@@ -12,43 +13,43 @@ export default function DashboardPage({ user, onLogout }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [bgOffset, setBgOffset] = useState({ x: 0, y: 0 });
 
-  // --- Mouse movement for doodle background ---
-  const handleMouseMove = useCallback((e) => {
-    const x = (e.clientX / window.innerWidth - 0.5) * 40;
-    const y = (e.clientY / window.innerHeight - 0.5) * 40;
-    setBgOffset({ x, y });
+  // --- Fetch reminders from backend ---
+  const fetchReminders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await reminderAPI.getReminders();
+      setReminders(res.data || []);
+      // Clear error on success
+      setError('');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to load reminders. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // --- Fetch reminders from backend ---
+  // Initial load
   useEffect(() => {
-    if (!user?.token) return;
-
-    const fetchReminders = async () => {
-      setLoading(true);
-      try {
-        const res = await axios.get(`${API_BASE}/reminders`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
-        setReminders(res.data || []);
-      } catch (err) {
-        console.error(err);
-        setError('Failed to load reminders.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchReminders();
-  }, [user?.token]);
+  }, [fetchReminders]);
+
+  const runGlobalEngine = async () => {
+    try {
+        await engineAPI.run();
+        alert("Global reminder check started.");
+    } catch (e) {
+        console.error(e);
+        alert("Failed to start engine.");
+    }
+  };
 
   // --- Delete reminder ---
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this reminder?')) return;
 
     try {
-      await axios.delete(`${API_BASE}/reminders/${id}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
+      await reminderAPI.deleteReminder(id);
       setReminders(reminders.filter(r => r.id !== id));
     } catch (err) {
       console.error(err);
@@ -63,60 +64,19 @@ export default function DashboardPage({ user, onLogout }) {
   };
 
   // --- Create reminder ---
-  const handleCreateReminder = async (newReminder) => {
-  try {
-    const token = localStorage.getItem("idToken"); // or wherever you store it
-    const reminder = { id: Math.max(...reminders.map(r => r.id), 0) + 1, ...newReminder };
+  // The reminder is already created in the modal via API, so we just update state here.
+  const handleCreateReminder = (newReminder) => {
+    // newReminder should already have the ID from the backend response
+    setReminders(prev => [...prev, newReminder]);
+  };
 
-    await axios.post("http://localhost:8000/reminders", reminder, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+  const handleMouseMove = (e) => {
+    // Parallax effect
+    setBgOffset({ x: e.clientX * 0.05, y: e.clientY * 0.05 });
+  };
 
-    setReminders([...reminders, reminder]);
-  } catch (err) {
-    console.error(err);
-    setError("Failed to create reminder: " + err.message);
-  }
-};
-
-  // --- Background doodle SVG ---
-  const doodleSvg = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
-    <!-- Coffee cup -->
-    <g transform="translate(60,50) rotate(-10)" stroke="#6aabeb" stroke-width="1.5" fill="none" opacity="0.45">
-      <path d="M 0 8 L 0 28 Q 0 35 7 35 L 23 35 Q 30 35 30 28 L 30 8 Z" stroke-linecap="round"/>
-      <path d="M 30 14 Q 40 14 40 22 Q 40 30 30 30"/>
-      <path d="M 8 0 Q 10 -5 12 0" stroke-width="1"/>
-      <path d="M 16 -2 Q 18 -7 20 -2" stroke-width="1"/>
-    </g>
-    <!-- Key -->
-    <g transform="translate(150,520) rotate(30)" stroke="#6aabeb" stroke-width="1.5" fill="none" opacity="0.4">
-      <circle cx="10" cy="10" r="8"/>
-      <line x1="18" y1="10" x2="38" y2="10"/>
-      <line x1="34" y1="10" x2="34" y2="16"/>
-      <line x1="38" y1="10" x2="38" y2="14"/>
-    </g>
-    <!-- Clock -->
-    <g transform="translate(680,300)" stroke="#6aabeb" stroke-width="1.5" fill="none" opacity="0.4">
-      <circle cx="18" cy="18" r="18"/>
-      <line x1="18" y1="18" x2="18" y2="8"/>
-      <line x1="18" y1="18" x2="26" y2="18"/>
-      <circle cx="18" cy="18" r="1.5" fill="#6aabeb"/>
-    </g>
-    <!-- Envelope -->
-    <g transform="translate(300,70) rotate(5)" stroke="#7db8f0" stroke-width="1.5" fill="none" opacity="0.4">
-      <rect x="0" y="0" width="35" height="25" rx="3"/>
-      <path d="M 0 0 L 17.5 14 L 35 0"/>
-    </g>
-    <!-- Small dots scattered -->
-    <circle cx="200" cy="250" r="2.5" fill="#6aabeb" opacity="0.25"/>
-    <circle cx="450" cy="130" r="2" fill="#7db8f0" opacity="0.25"/>
-    <circle cx="630" cy="420" r="2.5" fill="#6aabeb" opacity="0.25"/>
-    <circle cx="100" cy="600" r="2" fill="#7db8f0" opacity="0.25"/>
-    <circle cx="750" cy="200" r="2" fill="#7db8f0" opacity="0.25"/>
-    <circle cx="300" cy="550" r="2" fill="#6aabeb" opacity="0.25"/>
-  </svg>`)}`;
+  // --- Background doodle SVG (Simplified) ---
+  const doodleSvg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800"><path fill="none" stroke="#6aabeb" d="M0,0 L800,800 M800,0 L0,800" opacity="0.1"/></svg>')}`;
 
   return (
     <div
@@ -147,12 +107,32 @@ export default function DashboardPage({ user, onLogout }) {
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-8">
           <h2 className="text-3xl font-bold text-blue-800">Your Reminders</h2>
-          <button
-            onClick={() => setModalOpen(true)}
-            className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-all duration-200 hover:scale-105"
-          >
-            + New Reminder
-          </button>
+          <div className="flex gap-3">
+             <button
+               onClick={fetchReminders}
+               className="px-4 py-3 bg-gray-500 hover:bg-gray-600 text-white font-medium rounded-lg transition-all duration-200 hover:scale-105 shadow-md flex items-center gap-2"
+               title="Refresh Reminders"
+             >
+               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+               </svg>
+             </button>
+             <button
+                onClick={runGlobalEngine}
+                className="px-6 py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-medium rounded-lg transition-all duration-200 hover:scale-105 shadow-md flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                </svg>
+                Run Checker
+              </button>
+              <button
+                onClick={() => setModalOpen(true)}
+                className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-all duration-200 hover:scale-105 shadow-md"
+              >
+                + New Reminder
+              </button>
+          </div>
         </div>
 
         {error && (
