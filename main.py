@@ -5,6 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from firebase_admin import credentials, auth
 from database import db
+from reminder_engine import ReminderEngine
 from auth import signup as fb_signup, login as fb_login
 from reminder import (
     create_reminder, 
@@ -13,7 +14,9 @@ from reminder import (
     update_reminder, 
     delete_reminder
 )
+from fastapi.middleware.cors import CORSMiddleware
 from auth import verify_id_token
+from llm_parser import parse_sentence_to_json
 
 
 app = FastAPI(title="Ask and Forget API")
@@ -35,6 +38,9 @@ def require_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
 class AuthBody(BaseModel):
     email: EmailStr
     password: str
+
+class ParseRequest(BaseModel):
+    sentence: str
 
 class Condition(BaseModel):
     type: str
@@ -100,14 +106,23 @@ def parse_sentence(payload: ParseRequest):
 def signup(body: AuthBody):
     try:
         data = fb_signup(body.email, body.password)
+
+        user_info = auth.verify_id_token(data["idToken"])
+        uid = user_info["uid"]
+
+        db.collection("users").document(uid).set({
+            "email": body.email,
+            "created_at": datetime.utcnow().isoformat()
+        })
+
         return {
             "tokenId": data["idToken"],
             "refreshToken": data["refreshToken"],
             "expiresIn": data["expiresIn"]
         }
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @app.post("/auth/login")
 def login(body: AuthBody):
@@ -186,3 +201,24 @@ def api_update(
 def api_delete(reminder_id: str, user=Depends(require_user)):
     uid = user["uid"]
     return delete_reminder(reminder_id, user_id=uid)
+
+@app.post("/engine/run")
+def run_engine():
+    # Call your reminder engine manually
+    from reminder_engine import ReminderEngine
+    ReminderEngine.run_cycle()  # only run one cycle, not infinite loop
+    return {"status": "success", "message": "Reminder engine executed"}
+
+# Allow requests from your React dev server
+origins = [
+    "http://localhost:3000",  # frontend dev server
+    "http://127.0.0.1:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # allow GET, POST, PUT, DELETE, etc.
+    allow_headers=["*"],  # allow all headers
+)

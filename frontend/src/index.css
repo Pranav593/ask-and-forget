@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-gray-50;
+}
+
+@keyframes shine {
+  0% {
+    background-position: -200% center;
+  }
+  50% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.title-shine {
+  background: linear-gradient(
+    90deg,
+    #1f2937 0%,
+    #1f2937 35%,
+    #60a5fa 50%,
+    #1f2937 65%,
+    #1f2937 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 3s ease-in-out infinite;
+}
+
+.title-shine-blue {
+  background: linear-gradient(
+    90deg,
+    #3b82f6 0%,
+    #3b82f6 35%,
+    #93c5fd 50%,
+    #3b82f6 65%,
+    #3b82f6 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 3s ease-in-out infinite;
+}
+
+@keyframes forgetLoop {
+  0% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+  30% {
+    opacity: 0;
+    clip-path: inset(0 0 0 100%);
+  }
+  60% {
+    opacity: 0;
+    clip-path: inset(0 0 0 100%);
+  }
+  90% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.title-forget {
+  animation: forgetLoop 4s ease-in-out infinite;
+}
+
+@keyframes pulse-scale {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.title-hover {
+  animation: pulse-scale 4s ease-in-out infinite;
+}
+
+.slogan-shine {
+  transition: all 0.3s ease;
+}
+
+.slogan-shine:hover {
+  background: linear-gradient(
+    90deg,
+    #4b5563 0%,
+    #4b5563 35%,
+    #60a5fa 50%,
+    #4b5563 65%,
+    #4b5563 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 1.2s ease-in-out;
+  transform: scale(1.05);
+}
