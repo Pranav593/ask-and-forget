@@ -14,19 +14,35 @@ export default function LoginPage({ onLoginSuccess }) {
   }, []);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  e.preventDefault();
+  setLoading(true);
 
-    // Mock login - no actual API call
-    setTimeout(() => {
-      localStorage.setItem('idToken', 'mock-token-12345');
-      localStorage.setItem('refreshToken', 'mock-refresh-token');
-      localStorage.setItem('user', JSON.stringify({ email: email || 'demo@example.com' }));
-      
-      onLoginSuccess();
-      setLoading(false);
-    }, 500);
-  };
+  try {
+    const endpoint = isSignup ? '/auth/signup' : '/auth/login';
+    const res = await fetch(`http://localhost:8000${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.detail || 'Login failed');
+      return;
+    }
+
+    localStorage.setItem('idToken', data.tokenId);
+    localStorage.setItem('refreshToken', data.refreshToken);
+    localStorage.setItem('user', JSON.stringify({ email }));
+    onLoginSuccess();
+
+  } catch (err) {
+    alert('Could not reach the server. Is the backend running?');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const doodleSvg = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
     <!-- Coffee cup -->

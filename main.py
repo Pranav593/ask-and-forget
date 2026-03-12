@@ -216,7 +216,7 @@ def api_trigger(
     reminder's condition is met.
     """
     uid = user["uid"]
-    user_email = user.get("email", "")
+    user_email = user.get("email")
 
     reminder = get_reminder(reminder_id, user_id=uid)
     if "error" in reminder:
