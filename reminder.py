@@ -30,12 +30,14 @@ def get_reminders(user_id, is_active=True):
 
 
 #read one reminder
-def get_reminder(reminder_id):
+def get_reminder(reminder_id, user_id=None):
     doc = db.collection("reminders").document(reminder_id).get()
 
     if doc.exists:
         reminder = doc.to_dict()
         reminder["id"] = doc.id
+        if user_id and reminder.get("user_id") != user_id:
+            return {"error": "Unauthorized"}
         return reminder
     else:
         return {"error": "Reminder not found!"}

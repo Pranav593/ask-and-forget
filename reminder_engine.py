@@ -7,10 +7,13 @@ from typing import Dict, Any, List
 from database import db
 from data_route import route
 from evaluator import Evaluator
+from email_service import send_reminder_triggered
 from google.cloud.firestore import FieldFilter
 
 
 logging.basicConfig(level=logging.INFO)
+
+EMAIL_COOLDOWN_SECONDS = 3600  # 1 hour
 
 
 class ReminderEngine:
@@ -171,9 +174,42 @@ class ReminderEngine:
 
         logging.info(f"Reminder triggered: {reminder_id}")
 
+        now = int(time.time())
+
         # Update Firestore
         db.collection("reminders").document(reminder_id).update({
-            "lastTriggeredAt": int(time.time())
+            "lastTriggeredAt": now
         })
 
-        # TODO: send notification/email/push
+        # Rate-limit emails: only send if we haven't emailed in the last hour
+        last_emailed = reminder.get("lastEmailedAt", 0)
+        if now - last_emailed < EMAIL_COOLDOWN_SECONDS:
+            logging.info(
+                f"Skipping email for {reminder_id}: last emailed {now - last_emailed}s ago"
+            )
+            return
+
+        # Look up user email
+        user_id = reminder.get("user_id")
+        if not user_id:
+            logging.warning(f"No user_id on reminder {reminder_id}, cannot send email")
+            return
+
+        user_doc = db.collection("users").document(user_id).get()
+        if not user_doc.exists:
+            logging.warning(f"User {user_id} not found, cannot send email")
+            return
+
+        user_email = user_doc.to_dict().get("email")
+        if not user_email:
+            logging.warning(f"No email for user {user_id}")
+            return
+
+        try:
+            send_reminder_triggered(to_email=user_email, reminder=reminder)
+            db.collection("reminders").document(reminder_id).update({
+                "lastEmailedAt": now
+            })
+            logging.info(f"Trigger email sent to {user_email} for reminder {reminder_id}")
+        except Exception as e:
+            logging.error(f"Failed to send trigger email for {reminder_id}: {e}")
