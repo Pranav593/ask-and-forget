@@ -8,8 +8,8 @@ export default function ReminderCard({ reminder, onEdit, onDelete }) {
           <h3 className="text-lg font-semibold text-blue-800">{reminder.title}</h3>
           <p className="text-sm text-blue-400">{reminder.trigger_type}</p>
         </div>
-        <span className={`px-3 py-1 rounded-full text-sm font-medium ${reminder.isActive ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-400'}`}>
-          {reminder.isActive ? 'Active' : 'Inactive'}
+        <span className={`px-3 py-1 rounded-full text-sm font-medium ${reminder.is_active ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-400'}`}>
+          {reminder.is_active ? 'Active' : 'Inactive'}
         </span>
       </div>
 

@@ -142,48 +142,65 @@ def _handle_weather_current(payload: dict) -> dict:
     if cached is not None:
         return ok(cached, source="cache", meta={"ttl_seconds": _WEATHER_TTL_SECONDS})
 
-    api_key = os.getenv("OPENWEATHER_API_KEY")
-    if not api_key:
-        raise RouterError(
-            "CONFIG_ERROR",
-            "OPENWEATHER_API_KEY is not set",
-            status=500,
-        )
+    # 1. Geocoding
+    geo_url = "https://geocoding-api.open-meteo.com/v1/search"
+    geo_params = {"name": city, "count": 1, "language": "en", "format": "json"}
+    
+    status, geo_body = _request_json("GET", geo_url, params=geo_params)
+    
+    if status != 200:
+         raise RouterError("UPSTREAM_ERROR", "Geocoding failed", status=502, details={"body": geo_body})
+    
+    results = geo_body.get("results")
+    if not results:
+        raise RouterError("NOT_FOUND", f"City '{city}' not found", status=404, details={"provider": "open-meteo-geocoding"})
 
-    url = "https://api.openweathermap.org/data/2.5/weather"
-    params = {
-        "q": city,
-        "appid": api_key,
-        "units": "imperial",  # F; change to "metric" if preferred
+    location = results[0]
+    lat = location["latitude"]
+    lon = location["longitude"]
+    city_name = location["name"]
+    country = location.get("country")
+
+    # 2. Weather
+    weather_url = "https://api.open-meteo.com/v1/forecast"
+    weather_params = {
+        "latitude": lat,
+        "longitude": lon,
+        "current": "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m",
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit": "mph"
     }
 
-    status, body = _request_json("GET", url, params=params)
+    status, w_body = _request_json("GET", weather_url, params=weather_params)
 
-    # OpenWeather error shapes vary; handle status first
-    if status == 401:
-        raise RouterError("AUTH_FAILED", "OpenWeather API key is invalid", status=502, details={"provider_status": 401})
-    if status == 404:
-        # e.g., "city not found"
-        raise RouterError("NOT_FOUND", f"City '{city}' not found", status=404, details={"provider": "openweather"})
-    if status >= 500:
-        raise RouterError("UPSTREAM_ERROR", "OpenWeather server error", status=502, details={"provider_status": status, "body": body})
     if status != 200:
-        raise RouterError("UPSTREAM_ERROR", "OpenWeather request failed", status=502, details={"provider_status": status, "body": body})
+        raise RouterError("UPSTREAM_ERROR", "Weather API failed", status=502, details={"body": w_body})
 
-    # Validate expected fields
-    try:
-        parsed = {
-            "city": body.get("name") or city,
-            "country": (body.get("sys") or {}).get("country"),
-            "temp_f": (body.get("main") or {}).get("temp"),
-            "feels_like_f": (body.get("main") or {}).get("feels_like"),
-            "humidity": (body.get("main") or {}).get("humidity"),
-            "wind_mph": (body.get("wind") or {}).get("speed"),
-            "description": ((body.get("weather") or [{}])[0]).get("description"),
-            "provider": "openweather",
-        }
-    except Exception as e:
-        raise RouterError("PARSE_ERROR", "Failed to parse OpenWeather response", status=502, details={"body": body}) from e
+    current = w_body.get("current", {})
+    
+    # WMO Weather interpretation (simplified)
+    # https://open-meteo.com/en/docs
+    wmo_code = current.get("weather_code", 0)
+    description = "Unknown"
+    if wmo_code == 0: description = "Clear sky"
+    elif wmo_code in (1, 2, 3): description = "Partly cloudy"
+    elif wmo_code in (45, 48): description = "Foggy"
+    elif wmo_code in (51, 53, 55): description = "Drizzle"
+    elif wmo_code in (61, 63, 65): description = "Rain"
+    elif wmo_code in (71, 73, 75): description = "Snow"
+    elif wmo_code in (95, 96, 99): description = "Thunderstorm"
+    else: description = "Cloudy/Rain options"
+
+    parsed = {
+        "city": city_name,
+        "country": country,
+        "temp_f": current.get("temperature_2m"),
+        "feels_like_f": current.get("apparent_temperature"),
+        "humidity": current.get("relative_humidity_2m"),
+        "wind_mph": current.get("wind_speed_10m"),
+        "description": description,
+        "provider": "open-meteo",
+    }
 
     # Cache the normalized result (not raw body)
     _cache_set_weather(city_key, parsed)

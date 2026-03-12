@@ -17,9 +17,19 @@ from reminder import (
 from fastapi.middleware.cors import CORSMiddleware
 from auth import verify_id_token
 from llm_parser import parse_sentence_to_json
+from engine_routes import router as engine_router
 
 
 app = FastAPI(title="Ask and Forget API")
+
+# --- CORS Setup ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # --- Security & Auth Setup ---
 
@@ -43,21 +53,17 @@ class ParseRequest(BaseModel):
     sentence: str
 
 class Condition(BaseModel):
-    type: str
-    threshold: Optional[int] = None
-
-class TriggerParams(BaseModel):
     metric: str
-    operator: int
-    value: int
+    operator: str
+    value: str | int | float | bool
 
 class Reminder(BaseModel):
     title: str
     trigger_type: str
     location: str
-    trigger_params: TriggerParams
+    condition: Condition
     status: str
-    isActive: bool
+    is_active: bool
 
 
 # --- General Routes ---
@@ -87,6 +93,8 @@ def test_db():
             "message": str(e)
         }
 
+# --- Include Engine Routes ---
+app.include_router(engine_router)
 
 # --- NLP Parsing Route ---
 @app.post("/parse")

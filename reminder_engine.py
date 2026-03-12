@@ -24,7 +24,7 @@ class ReminderEngine:
     def get_active_reminders() -> List[Dict[str, Any]]:
         docs = (
             db.collection("reminders")
-            .where("isActive", "==", True)
+            .where("is_active", "==", True)
             .stream()
         )
 
@@ -103,11 +103,11 @@ class ReminderEngine:
             # Extract metric
             # ----------------------------
 
-            trigger_params = reminder.get("trigger_params", {})
+            condition = reminder.get("condition", {})
 
-            metric = trigger_params.get("metric")
-            operator = trigger_params.get("operator")
-            expected_value = trigger_params.get("value")
+            metric = condition.get("metric")
+            operator = condition.get("operator")
+            expected_value = condition.get("value")
 
             actual_value = data.get(metric)
 

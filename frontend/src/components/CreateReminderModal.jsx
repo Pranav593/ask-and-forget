@@ -9,9 +9,9 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
     title: "",
     trigger_type: "time.now",
     location: "",
-    condition: { type: "", operator: "==", value: "" },
+    condition: { metric: "", operator: "==", value: "" },
     status: "active",
-    isActive: true,
+    is_active: true,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -51,9 +51,9 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
         title: data.title || "",
         trigger_type: data.trigger_type || "time.now",
         location: data.location || "",
-        condition: data.condition || { type: "", operator: "==", value: "" },
+        condition: data.condition || { metric: "", operator: "==", value: "" },
         status: data.is_active ? "active" : "inactive",
-        isActive: data.is_active ?? true,
+        is_active: data.is_active ?? true,
       });
 
       setManualMode(true); // switch to manual mode so user can review/edit
@@ -81,9 +81,9 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
         title: "",
         trigger_type: "time.now",
         location: "",
-        condition: { type: "", operator: "==", value: "" },
+        condition: { metric: "", operator: "==", value: "" },
         status: "active",
-        isActive: true,
+        is_active: true,
       });
       setManualMode(false);
       onClose();

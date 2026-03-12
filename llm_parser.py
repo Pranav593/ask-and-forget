@@ -19,7 +19,7 @@ Convert the user sentence into a JSON object using EXACTLY this schema:
     "trigger_type": "string",
     "location": "string",
     "condition": {
-        "type": "string",
+        "metric": "string",
         "operator": "==",
         "value": "string | number | boolean"
     },
@@ -41,7 +41,7 @@ User sentence: "__USER_SENTENCE__"
 
 class Condition(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    type: str
+    metric: str
     operator: str
     value: str | int | float | bool
 
