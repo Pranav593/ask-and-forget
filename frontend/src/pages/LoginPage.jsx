@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { authAPI } from "../api/client";
 
 export default function LoginPage({ onLoginSuccess }) {
   const [email, setEmail] = useState('');
@@ -14,35 +15,34 @@ export default function LoginPage({ onLoginSuccess }) {
   }, []);
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
+    e.preventDefault();
+    setLoading(true);
 
-  try {
-    const endpoint = isSignup ? '/auth/signup' : '/auth/login';
-    const res = await fetch(`http://localhost:8000${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      let res;
 
-    const data = await res.json();
+      if (isSignup) {
+        res = await authAPI.signup(email, password);
+      } else {
+        res = await authAPI.login(email, password);
+      }
 
-    if (!res.ok) {
-      alert(data.detail || 'Login failed');
-      return;
+      const { tokenId, refreshToken } = res.data;
+
+      localStorage.setItem('idToken', tokenId);
+      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem('user', JSON.stringify({ email }));
+
+      onLoginSuccess();
+
+    } catch (err) {
+      console.error("Auth error:", err);
+      const msg = err.response?.data?.detail || 'Authentication failed. Is the backend running?';
+      alert(msg);
+    } finally {
+      setLoading(false);
     }
-
-    localStorage.setItem('idToken', data.tokenId);
-    localStorage.setItem('refreshToken', data.refreshToken);
-    localStorage.setItem('user', JSON.stringify({ email }));
-    onLoginSuccess();
-
-  } catch (err) {
-    alert('Could not reach the server. Is the backend running?');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const doodleSvg = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
     <!-- Coffee cup -->

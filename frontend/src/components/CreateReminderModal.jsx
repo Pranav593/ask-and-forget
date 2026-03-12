@@ -1,87 +1,80 @@
-import React, { useState } from 'react';
-import { reminderAPI, parserAPI } from '../api/client';
+import React, { useState } from "react";
+import { reminderAPI } from "../api/client";
 
 export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
-  const [sentence, setSentence] = useState('');
-  const [parsing, setParsing] = useState(false);
-  const [manualMode, setManualMode] = useState(false);
-  const [formData, setFormData] = useState({
-    title: '',
-    trigger_type: 'location',
-    location: '',
-    trigger_params: { metric: '', operator: 0, value: 0 },
-    status: 'active',
-    isActive: true,
-  });
+  const [title, setTitle] = useState("");
+  const [sentence, setSentence] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [parseError, setParseError] = useState('');
-
-  const reset = () => {
-    setSentence('');
-    setParseError('');
-    setError('');
-    setManualMode(false);
-    setFormData({
-      title: '',
-      trigger_type: 'location',
-      location: '',
-      trigger_params: { metric: '', operator: 0, value: 0 },
-      status: 'active',
-      isActive: true,
-    });
-  };
-
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
-
-  const handleParseSentence = async () => {
-    if (!sentence.trim()) return;
-    setParsing(true);
-    setParseError('');
-    try {
-      const res = await parserAPI.parse(sentence);
-      const parsed = res.data?.data;
-      if (!parsed || parsed.error) {
-        setParseError(parsed?.error || 'Could not parse your reminder. Try rephrasing.');
-        return;
-      }
-      setFormData({
-        title: parsed.title || sentence.substring(0, 50),
-        trigger_type: parsed.trigger_type || 'location',
-        location: parsed.location || '',
-        trigger_params: { metric: parsed.condition?.type || '', operator: 0, value: 0 },
-        status: 'active',
-        isActive: parsed.is_active ?? true,
-      });
-      setManualMode(true);
-    } catch (err) {
-      setParseError('Failed to reach the parser. Please enter details manually.');
-      setManualMode(true);
-    } finally {
-      setParsing(false);
-    }
-  };
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.title.trim()) {
-      setError('Title is required.');
+    if (!title.trim()) {
+      setError("Title is required.");
       return;
     }
     setLoading(true);
-    setError('');
+    setError("");
+
     try {
-      const res = await reminderAPI.createReminder(formData);
-      // res.data contains { id, message } from the backend
-      onSuccess({ id: res.data.id, ...formData });
-      reset();
+      // 1. Get User Location (Browser API)
+      let userLocation = "";
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject);
+        });
+        userLocation = ` (My current location is lat: ${pos.coords.latitude}, lon: ${pos.coords.longitude})`;
+      } catch (locErr) {
+        console.warn("Location permission denied or failed", locErr);
+      }
+
+      // 2. Parse with AI
+      const fullSentence = sentence + userLocation;
+      const parseRes = await fetch("http://localhost:8000/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sentence: fullSentence }),
+      });
+
+      const parseData = await parseRes.json();
+
+      if (parseData.error) {
+        throw new Error(parseData.details || "Failed to specificy reminder details. Try again.");
+      }
+      
+      const aiData = parseData.data;
+
+      // Validate aiData has meaningful content
+      if (!aiData || (!aiData.trigger_type && !aiData.condition)) {
+           throw new Error("AI could not understand the trigger condition. Please try rephrasing.");
+      }
+
+      // 3. Create Reminder Automatically
+      const payload = {
+        title: title,
+        trigger_type: aiData.trigger_type || "time.now",
+        location: aiData.location || "Unknown",
+        condition: aiData.condition || { metric: "", operator: "==", value: "" },
+        status: aiData.is_active ? "active" : "inactive",
+        is_active: aiData.is_active ?? true,
+      };
+
+      try {
+          const createRes = await reminderAPI.createReminder(payload);
+          onSuccess({ ...payload, id: createRes.data.id });
+      } catch (createErr) {
+          console.error("Creation error:", createErr);
+          throw createErr;
+      }
+
+      // Reset & Close
+      setTitle("");
+      setSentence("");
       onClose();
+
     } catch (err) {
-      const msg = err.response?.data?.detail || 'Failed to create reminder. Please try again.';
-      setError(msg);
+      console.error(err);
+      setError(err.message || "Failed to create reminder.");
     } finally {
       setLoading(false);
     }
@@ -95,93 +88,37 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Create Reminder</h2>
           <button
-            onClick={handleClose}
+            onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-xl font-bold leading-none"
             aria-label="Close"
           >
             ×
           </button>
         </div>
-
-        {!manualMode ? (
-          <div className="space-y-4">
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Describe your reminder in natural language
-              </label>
-              <textarea
-                value={sentence}
-                onChange={(e) => setSentence(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleParseSentence();
-                  }
-                }}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                placeholder="e.g., Remind me to buy milk when I reach the grocery store"
-                rows="4"
-              />
-              <p className="text-xs text-gray-400 mt-1">Press Enter or click Parse to continue.</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., Buy Milk"
+                    required
+                />
             </div>
-
-            {parseError && (
-              <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded">{parseError}</p>
-            )}
-
-            <button
-              onClick={handleParseSentence}
-              disabled={parsing || !sentence.trim()}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 rounded-lg transition disabled:opacity-50"
-            >
-              {parsing ? 'Parsing…' : 'Parse Reminder'}
-            </button>
-
-            <button
-              onClick={() => setManualMode(true)}
-              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 rounded-lg transition"
-            >
-              Enter Manually
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+            
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Title <span className="text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., Buy milk"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Type</label>
-              <select
-                value={formData.trigger_type}
-                onChange={(e) => setFormData({ ...formData, trigger_type: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="location">Location</option>
-                <option value="time">Time</option>
-                <option value="metric">Metric</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-              <input
-                type="text"
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., Grocery Store"
-              />
+                <label className="block text-sm font-medium text-gray-700 mb-1">What triggers this?</label>
+                <textarea
+                    value={sentence}
+                    onChange={(e) => setSentence(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., When it rains in London..."
+                    rows="4"
+                    required
+                />
             </div>
 
             {/* Email notice */}
@@ -196,24 +133,23 @@ export default function CreateReminderModal({ isOpen, onClose, onSuccess }) {
               <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded">{error}</p>
             )}
 
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setManualMode(false)}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 rounded-lg transition"
-              >
-                ← Back
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 rounded-lg transition disabled:opacity-50"
-              >
-                {loading ? 'Creating…' : 'Create Reminder'}
-              </button>
+            <div className="flex gap-2 pt-2">
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 rounded-lg transition"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition disabled:opacity-50"
+                >
+                    {loading ? "Creating..." : "Create Reminder"}
+                </button>
             </div>
-          </form>
-        )}
+        </form>
       </div>
     </div>
   );

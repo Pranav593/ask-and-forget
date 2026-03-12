@@ -1,11 +1,13 @@
-from typing import List, Optional
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from firebase_admin import credentials, auth
 from database import db
+from reminder_engine import ReminderEngine
 from auth import signup as fb_signup, login as fb_login
 from reminder import (
     create_reminder,
@@ -14,16 +16,28 @@ from reminder import (
     update_reminder,
     delete_reminder,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from auth import verify_id_token
 from llm_parser import parse_sentence_to_json
 from email_service import send_reminder_confirmation, send_reminder_triggered
+from engine_routes import router as engine_router
 
 
 app = FastAPI(title="Ask and Forget API")
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"Validation Error: {exc.errors()}")
+    print(f"Body: {await request.body()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": str(exc.body)},
+    )
+
+# --- CORS Setup ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,23 +68,18 @@ class ParseRequest(BaseModel):
 
 
 class Condition(BaseModel):
-    type: str
-    threshold: Optional[int] = None
-
-
-class TriggerParams(BaseModel):
     metric: str
-    operator: int
-    value: int
+    operator: str
+    value: str | int | float | bool
 
 
 class ReminderBody(BaseModel):
     title: str
     trigger_type: str
     location: str
-    trigger_params: TriggerParams
+    condition: Condition
     status: str
-    isActive: bool
+    is_active: bool
 
 
 # --- General Routes ---
@@ -92,6 +101,8 @@ def test_db():
     except Exception as e:
         return {"status": "Error", "message": str(e)}
 
+# --- Include Engine Routes ---
+app.include_router(engine_router)
 
 # --- NLP Parsing Route ---
 
@@ -109,14 +120,23 @@ def parse_sentence(payload: ParseRequest):
 def signup(body: AuthBody):
     try:
         data = fb_signup(body.email, body.password)
+
+        user_info = auth.verify_id_token(data["idToken"])
+        uid = user_info["uid"]
+
+        db.collection("users").document(uid).set({
+            "email": body.email,
+            "created_at": datetime.utcnow().isoformat()
+        })
+
         return {
             "tokenId": data["idToken"],
             "refreshToken": data["refreshToken"],
             "expiresIn": data["expiresIn"],
         }
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @app.post("/auth/login")
 def login(body: AuthBody):
