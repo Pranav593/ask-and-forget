@@ -1,35 +1,46 @@
 from typing import List, Optional
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from firebase_admin import credentials, auth
 from database import db
 from auth import signup as fb_signup, login as fb_login
 from reminder import (
-    create_reminder, 
-    get_reminders, 
-    get_reminder, 
-    update_reminder, 
-    delete_reminder
+    create_reminder,
+    get_reminders,
+    get_reminder,
+    update_reminder,
+    delete_reminder,
 )
 from auth import verify_id_token
 from llm_parser import parse_sentence_to_json
+from email_service import send_reminder_confirmation, send_reminder_triggered
 
 
 app = FastAPI(title="Ask and Forget API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Security & Auth Setup ---
 
 bearer = HTTPBearer()
 
+
 def require_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
     try:
         user_info = auth.verify_id_token(creds.credentials)
         return user_info
-
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
+
 
 # --- Pydantic Models ---
 
@@ -37,19 +48,23 @@ class AuthBody(BaseModel):
     email: EmailStr
     password: str
 
+
 class ParseRequest(BaseModel):
     sentence: str
+
 
 class Condition(BaseModel):
     type: str
     threshold: Optional[int] = None
+
 
 class TriggerParams(BaseModel):
     metric: str
     operator: int
     value: int
 
-class Reminder(BaseModel):
+
+class ReminderBody(BaseModel):
     title: str
     trigger_type: str
     location: str
@@ -64,36 +79,26 @@ class Reminder(BaseModel):
 def read_root():
     return {"status": "Active", "msg": "Ask and Forget backend is running."}
 
-# --- Test Firestore Connection ---
+
 @app.get("/test-db")
 def test_db():
     try:
         doc_ref = db.collection("test_connection").document("status_check")
         doc_ref.set({
             "message": "Database is successfully connected!",
-            "sender": "FastAPI Server"
+            "sender": "FastAPI Server",
         })
-
-        return {
-            "status": "Success",
-            "database": "Firestore Connected"
-        }
-
+        return {"status": "Success", "database": "Firestore Connected"}
     except Exception as e:
-        return {
-            "status": "Error",
-            "message": str(e)
-        }
+        return {"status": "Error", "message": str(e)}
 
 
 # --- NLP Parsing Route ---
+
 @app.post("/parse")
 def parse_sentence(payload: ParseRequest):
     result = parse_sentence_to_json(payload.sentence)
-    return {
-        "status": "Success",
-        "data": result
-    }
+    return {"status": "Success", "data": result}
 
 
 # =========================
@@ -107,7 +112,7 @@ def signup(body: AuthBody):
         return {
             "tokenId": data["idToken"],
             "refreshToken": data["refreshToken"],
-            "expiresIn": data["expiresIn"]
+            "expiresIn": data["expiresIn"],
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -120,7 +125,7 @@ def login(body: AuthBody):
         return {
             "tokenId": data["idToken"],
             "refreshToken": data["refreshToken"],
-            "expiresIn": data["expiresIn"]
+            "expiresIn": data["expiresIn"],
         }
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
@@ -131,17 +136,13 @@ def me(user=Depends(require_user)):
     return {
         "uid": user["uid"],
         "email": user.get("email"),
-        "email_verified": user.get("email_verified")
+        "email_verified": user.get("email_verified"),
     }
 
 
 @app.get("/protected")
 def protected(user=Depends(require_user)):
-    return {
-        "ok": True,
-        "uid": user["uid"],
-        "message": "Authorized"
-    }
+    return {"ok": True, "uid": user["uid"], "message": "Authorized"}
 
 
 # =========================
@@ -149,19 +150,29 @@ def protected(user=Depends(require_user)):
 # =========================
 
 @app.post("/reminders")
-def api_create(reminder: Reminder, user=Depends(require_user)):
+def api_create(
+    reminder: ReminderBody,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_user),
+):
     uid = user["uid"]
-    return create_reminder(
-        user_id=uid,
-        reminder_dict=reminder.dict()
-    )
+    user_email = user.get("email", "")
+
+    result = create_reminder(user_id=uid, reminder_dict=reminder.dict())
+
+    # Send confirmation email in the background so it never blocks the response.
+    if user_email:
+        background_tasks.add_task(
+            send_reminder_confirmation,
+            to_email=user_email,
+            reminder=reminder.dict(),
+        )
+
+    return result
 
 
 @app.get("/reminders")
-def api_read(
-    user=Depends(require_user),
-    is_active: Optional[bool] = True
-):
+def api_read(user=Depends(require_user), is_active: Optional[bool] = True):
     uid = user["uid"]
     return get_reminders(uid, is_active)
 
@@ -176,17 +187,53 @@ def api_read_one(reminder_id: str, user=Depends(require_user)):
 def api_update(
     reminder_id: str,
     updated_data: dict,
-    user=Depends(require_user)
+    user=Depends(require_user),
 ):
     uid = user["uid"]
-    return update_reminder(
-        reminder_id,
-        updated_data,
-        user_id=uid
-    )
+    return update_reminder(reminder_id, updated_data, user_id=uid)
 
 
 @app.delete("/reminders/{reminder_id}")
 def api_delete(reminder_id: str, user=Depends(require_user)):
     uid = user["uid"]
     return delete_reminder(reminder_id, user_id=uid)
+
+
+# =========================
+# Trigger Route
+# =========================
+
+@app.post("/reminders/{reminder_id}/trigger")
+def api_trigger(
+    reminder_id: str,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_user),
+):
+    """
+    Mark a reminder as triggered and email the user.
+    Call this endpoint from your trigger-checking logic (scheduler,
+    location webhook, data-route evaluation, etc.) whenever a
+    reminder's condition is met.
+    """
+    uid = user["uid"]
+    user_email = user.get("email", "")
+
+    reminder = get_reminder(reminder_id, user_id=uid)
+    if "error" in reminder:
+        raise HTTPException(status_code=404, detail=reminder["error"])
+
+    # Deactivate the reminder so it doesn't fire again
+    update_reminder(
+        reminder_id,
+        {"is_active": False, "isActive": False, "last_triggered_at": datetime.utcnow()},
+        user_id=uid,
+    )
+
+    if user_email:
+        background_tasks.add_task(
+            send_reminder_triggered,
+            to_email=user_email,
+            reminder=reminder,
+        )
+
+    return {"status": "triggered", "reminder_id": reminder_id}
