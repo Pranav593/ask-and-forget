@@ -12,7 +12,7 @@ if not FIREBASE_API_KEY:
 
 def verify_id_token(token: str) -> dict:
     try:
-        decoded = admin.auth.verify_id_token(token)
+        decoded = admin_auth.verify_id_token(token)
         return decoded
     except Exception:
         raise ValueError("INVALID_TOKEN")

@@ -28,6 +28,11 @@ export const reminderAPI = {
   deleteReminder: (id) => api.delete(`/reminders/${id}`),
 };
 
+export const engineAPI = {
+  run: () => api.post('/engine/run'),
+  runSingle: (reminderId) => api.post(`/engine/run/${reminderId}`)
+};
+
 export const parserAPI = {
   parse: (sentence) => api.post('/parse', { sentence }),
 };

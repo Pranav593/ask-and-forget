@@ -5,3 +5,4 @@ serviceAccountKey.json
 .pytest_cache/
 format.json
 .venv/
+node_modules/
